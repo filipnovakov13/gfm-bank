@@ -15,9 +15,12 @@ Start:
 
 import hashlib
 import sqlite3
+import time
 import uuid
 from datetime import datetime as dt, timezone
 UTC = timezone.utc
+
+_START_TIME = time.monotonic()
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -203,3 +206,31 @@ def manual_post(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/detailed")
+def health_detailed(db=Depends(get_db)):
+    """Extended health check — returns DB connectivity, row counts, and uptime.
+    No authentication required. Returns 503 if the database is unreachable.
+    """
+    try:
+        users_count      = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        accounts_count   = db.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+        txns_count       = db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "degraded", "database": "unreachable", "error": str(exc)},
+        )
+
+    return {
+        "status": "ok",
+        "database": "connected",
+        "counts": {
+            "users":        users_count,
+            "accounts":     accounts_count,
+            "transactions": txns_count,
+        },
+        "uptime_seconds": round(time.monotonic() - _START_TIME, 2),
+        "timestamp":      dt.now(UTC).isoformat(),
+    }
